@@ -13,25 +13,25 @@ def setup_logging():
     """Настройка логирования."""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-        ]
+        ],
     )
 
 
 def main():
     """Главная функция запуска приложения."""
     setup_logging()
-    
+
     try:
         import tkinter as tk
         from fx_translator.gui.app import AppGUI
-        
+
         root = tk.Tk()
         app = AppGUI(root)
         root.mainloop()
-        
+
     except ImportError as e:
         logging.error(f"GUI модуль не найден: {e}")
         logging.info("=" * 60)
@@ -50,10 +50,11 @@ def main():
         logging.info("  )")
         logging.info("=" * 60)
         sys.exit(1)
-    
+
     except Exception as e:
         logging.error(f"Ошибка при запуске приложения: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
