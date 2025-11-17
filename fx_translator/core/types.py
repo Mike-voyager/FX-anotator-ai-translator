@@ -26,7 +26,7 @@ class BlockType(str, Enum):
 
 
 # Type alias для логической стороны страницы
-LogicalSide = Literal["L", "R", "BOTH"]
+logical_side = Literal["L", "R", "BOTH"]
 
 # Type aliases для улучшения читаемости
 BBox = tuple[float, float, float, float]  # (x0, y0, x1, y1)

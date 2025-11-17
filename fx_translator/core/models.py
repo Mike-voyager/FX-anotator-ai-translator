@@ -93,9 +93,9 @@ class PageBatch:
     Attributes:
         pagenumber: Номер страницы (1-based)
         segments: Список сегментов на странице
-        logicalside: Логическая сторона страницы ("L", "R" или пусто для обычных страниц)
+        logical_side: Логическая сторона страницы ("L", "R" или пусто для обычных страниц)
     """
 
     pagenumber: int
     segments: List[Segment] = field(default_factory=list)
-    logicalside: str = ""  # "L", "R", или пусто
+    logical_side: str = ""  # "L", "R", или пусто

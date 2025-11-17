@@ -84,7 +84,7 @@ def export_docx(
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     for page_batch in pages:
-        side = getattr(page_batch, "logicalside", "")
+        side = getattr(page_batch, "logical_side", "")
         side_suffix = f"[{side}]" if side in ("L", "R") else ""
 
         h = doc.add_paragraph(f"Страница {page_batch.pagenumber}{side_suffix}")

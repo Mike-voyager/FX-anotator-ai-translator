@@ -3,7 +3,7 @@
 """
 
 from fx_translator.core.models import TextLine, TextBlock, Segment, PageBatch
-from fx_translator.core.types import BlockType, LogicalSide, BBox
+from fx_translator.core.types import BlockType, logical_side, BBox
 from fx_translator.core.config import (
     DEFAULT_HURIDOCS_BASE,
     DEFAULT_LMSTUDIO_BASE,
@@ -28,7 +28,7 @@ __all__ = [
     "PageBatch",
     # Types
     "BlockType",
-    "LogicalSide",
+    "logical_side",
     "BBox",
     # Config
     "DEFAULT_HURIDOCS_BASE",

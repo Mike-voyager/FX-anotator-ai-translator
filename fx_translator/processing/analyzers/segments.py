@@ -394,7 +394,7 @@ def refine_huridocs_segments(
     return PageBatch(
         pagenumber=page_batch.pagenumber,
         segments=refined,
-        logicalside=getattr(page_batch, "logicalside", ""),
+        logical_side=getattr(page_batch, "logical_side", ""),
     )
 
 
@@ -682,7 +682,7 @@ def deglue_pages_pdfaware(pages: List[PageBatch], pdf_path: str) -> List[PageBat
                 PageBatch(
                     pagenumber=pb.pagenumber,
                     segments=new_segs,
-                    logicalside=getattr(pb, "logicalside", ""),
+                    logical_side=getattr(pb, "logical_side", ""),
                 )
             )
     finally:

@@ -25,6 +25,7 @@ def huridocs_analyze_pdf_smart(
     base_url: str,
     analyze_path: str,
     timeout: int = TIMEOUT,
+    fast: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Умный анализ PDF через HURIDOCS с автоматическим поиском рабочего endpoint.
@@ -64,7 +65,8 @@ def huridocs_analyze_pdf_smart(
 
             with open(pdf_path, "rb") as f:
                 files = {"file": (os.path.basename(pdf_path), f, "application/pdf")}
-                resp = HTTP.post(url, files=files, timeout=timeout)
+                form_data = {"fast": "true" if fast else "false"}
+                resp = HTTP.post(url, files=files, data=form_data, timeout=timeout)
 
             # Пропускаем недоступные endpoints
             if resp.status_code == 404 or resp.status_code == 405:
@@ -98,6 +100,7 @@ def huridocs_analyze_pdf(
     base_url: str = DEFAULT_HURIDOCS_BASE,
     analyze_path: str = HURIDOCS_ANALYZE_PATH,
     timeout: int = TIMEOUT,
+    fast: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Анализирует PDF через HURIDOCS API.
@@ -126,7 +129,8 @@ def huridocs_analyze_pdf(
 
     t = Timer()
     files = {"file": (os.path.basename(pdf_path), io.BytesIO(data), "application/pdf")}
-    resp = HTTP.post(url, files=files, timeout=timeout)
+    form_data = {"fast": "true" if fast else "false"}
+    resp = HTTP.post(url, files=files, data=form_data, timeout=timeout)
     dur = t.ms()
 
     log_metric("huridocs_analyze", None, "POST", dur, None, len(data), url)

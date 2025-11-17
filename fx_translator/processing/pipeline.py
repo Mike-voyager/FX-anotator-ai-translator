@@ -88,7 +88,7 @@ def run_pipeline(
     input_pdf: str,
     out_pdf_annotated: str,
     out_docx: str,
-    src_lang: str = "en",
+    src_lang: str = "it",
     tgt_lang: str = "ru",
     huridocs_base: str = DEFAULT_HURIDOCS_BASE,
     huridocs_analyze_path: str = HURIDOCS_ANALYZE_PATH,
@@ -104,6 +104,7 @@ def run_pipeline(
     start_page: Optional[int] = None,
     end_page: Optional[int] = None,
     split_spreads_enabled: bool = True,
+    fast=False,
 ) -> None:
     """
     Стандартный конвейер обработки PDF через HURIDOCS.
@@ -141,7 +142,9 @@ def run_pipeline(
     init_metrics(out_docx)
 
     logging.info("Шаг 1/3: Анализ макета через HURIDOCS...")
-    seg_json = huridocs_analyze_pdf(input_pdf, huridocs_base, huridocs_analyze_path)
+    seg_json = huridocs_analyze_pdf(
+        input_pdf, huridocs_base, huridocs_analyze_path, fast=False
+    )
     pages = build_pages(seg_json)
 
     # Мягкая волна обработки до сплита
@@ -231,6 +234,7 @@ def analyze_pdf_transactional(
     start_page: Optional[int] = None,
     end_page: Optional[int] = None,
     per_page_timeout: int = 600,
+    fast: bool = False,
 ) -> List[PageBatch]:
     """
     Постраничный анализ с умным управлением контейнером.
@@ -317,6 +321,7 @@ def analyze_pdf_transactional(
                     base_url=base_url,
                     analyze_path=analyze_path,
                     timeout=per_page_timeout,
+                    fast=fast,
                 )
 
                 # Корректируем номера страниц
@@ -374,7 +379,7 @@ def run_pipeline_transactional(
     input_pdf: str,
     out_pdf_annotated: str,
     out_docx: str,
-    src_lang: str = "en",
+    src_lang: str = "it",
     tgt_lang: str = "ru",
     huridocs_base: Optional[str] = None,
     huridocs_analyze_path: str = HURIDOCS_ANALYZE_PATH,
@@ -390,6 +395,7 @@ def run_pipeline_transactional(
     pause_ms: int = 0,
     pause_hook: Optional[Callable[[], None]] = None,
     split_spreads_enabled: bool = True,
+    fast: bool = False,
 ) -> None:
     """
     Транзакционный постраничный конвейер с управлением контейнером.
@@ -433,6 +439,7 @@ def run_pipeline_transactional(
         start_page=start_page,
         end_page=end_page,
         per_page_timeout=600,
+        fast=fast,
     )
 
     # Мягкая волна до сплита
@@ -724,7 +731,7 @@ def run_pipeline_pymupdf(
             base_url=lms_base,
         )
 
-        side = getattr(pb, "logicalside", "")
+        side = getattr(pb, "logical_side", "")
         for s in segs:
             translations[(pb.pagenumber, side, s.blockid)] = page_map.get(s.blockid, "")
 

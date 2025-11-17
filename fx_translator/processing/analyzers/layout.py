@@ -116,7 +116,7 @@ def split_spreads(
             pb_left = PageBatch(
                 pagenumber=pb.pagenumber,
                 segments=left,
-                logicalside="L",
+                logical_side="L",
             )
 
             right = sort_segments_reading_order(right)
@@ -126,7 +126,7 @@ def split_spreads(
             pb_right = PageBatch(
                 pagenumber=pb.pagenumber,
                 segments=right,
-                logicalside="R",
+                logical_side="R",
             )
 
             if debug:
@@ -179,7 +179,7 @@ def split_spreads_force_half(
         pb_left = PageBatch(
             pagenumber=pb.pagenumber,
             segments=left,
-            logicalside="L",
+            logical_side="L",
         )
 
         right = sort_segments_reading_order(right)
@@ -189,7 +189,7 @@ def split_spreads_force_half(
         pb_right = PageBatch(
             pagenumber=pb.pagenumber,
             segments=right,
-            logicalside="R",
+            logical_side="R",
         )
 
         out.append(pb_left)

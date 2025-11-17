@@ -285,7 +285,7 @@ def annotate_pdf_with_comments(
                 continue
 
             page = doc[pno]
-            side = getattr(pb, "logicalside", "")
+            side = getattr(pb, "logical_side", "")
 
             for s in sort_segments_reading_order(pb.segments):
                 # Координаты сегмента
@@ -349,14 +349,7 @@ def annotate_pdf_with_markup_annotations(
     show_popup: bool = True,
 ) -> None:
     """
-    Создаёт PDF с markup-аннотациями (highlight, underline и т.д.) и комментариями.
-
-    Args:
-        input_pdf: Путь к входному PDF файлу
-        out_pdf: Путь для сохранения PDF с аннотациями
-        pages: Список батчей страниц с сегментами
-        annotation_type: Тип аннотации ("highlight", "underline", "squiggly", "strikeout")
-        show_popup: Показывать всплывающие комментарии
+    Создаёт PDF с markup-аннотациями и редактируемыми FreeText номерами блоков.
     """
     doc = pymupdf.open(input_pdf)
 
@@ -368,12 +361,12 @@ def annotate_pdf_with_markup_annotations(
                 continue
 
             page = doc[pno]
-            side = getattr(pb, "logicalside", "")
+            side = getattr(pb, "logical_side", "")
 
             for s in sort_segments_reading_order(pb.segments):
                 rect = pymupdf.Rect(s.left, s.top, s.left + s.width, s.top + s.height)
 
-                # ✅ Приятный зелёный highlight
+                # ✅ Зелёный highlight
                 if annotation_type == "highlight":
                     annot = page.add_highlight_annot(rect)
                 elif annotation_type == "underline":
@@ -385,11 +378,10 @@ def annotate_pdf_with_markup_annotations(
                 else:
                     annot = page.add_highlight_annot(rect)
 
-                # ✅ Зелёный цвет для highlight (светло-зелёный)
-                annot.set_colors(stroke=(0.5, 1, 0.5))  # RGB: приятный зелёный
-                annot.set_opacity(0.35)  # Полупрозрачность
+                annot.set_colors(stroke=(0.5, 1, 0.5))  # Приятный зелёный
+                annot.set_opacity(0.35)
 
-                # Формируем текст комментария
+                # Комментарий для всплывающей заметки
                 comment_lines = [
                     f"Block #{s.blockid}",
                     f"Type: {s.type or 'text'}",
@@ -405,22 +397,53 @@ def annotate_pdf_with_markup_annotations(
                 annot.info["content"] = "\n".join(comment_lines)
                 annot.info["title"] = f"Segment {s.blockid}"
                 annot.info["subject"] = s.type or "Text"
-
                 annot.update()
 
-                sticky_note = page.add_text_annot(
-                    point=(rect.x0, rect.y0),  # Левый верхний угол блока
-                    text=f"Блок #{s.blockid}",  # Простой текст с номером
-                    icon="Comment",  # Иконка комментария
+                # ✅ ✅ ✅ НОМЕР БЛОКА ЧЕРЕЗ SHAPE + FREETEXT ✅ ✅ ✅
+
+                # Размер и позиция лейбла
+                label_size = 20  # Размер квадрата
+                label_x = rect.x0
+                label_y = rect.y0 - label_size - 2  # Над блоком
+
+                # Если выходит за границы страницы — рисуем внутри блока
+                if label_y < 0:
+                    label_y = rect.y0 + 2
+
+                label_rect = pymupdf.Rect(
+                    label_x, label_y, label_x + label_size, label_y + label_size
                 )
 
-                sticky_note.set_colors(stroke=(0.2, 0.8, 0.2))  # Тёмно-зелёный
-                sticky_note.set_opacity(1.0)  # Непрозрачная иконка
+                # ✅ Рисуем фон и границу через Shape
+                sh = page.new_shape()
+                sh.draw_rect(label_rect)
+                sh.finish(
+                    color=(0, 0.6, 0),  # Тёмно-зелёная граница
+                    fill=(0.85, 1, 0.85),  # Светло-зелёный фон
+                    width=1.5,
+                )
+                sh.commit()
 
-                sticky_note.info["title"] = f"Block {s.blockid}"
-                sticky_note.info["subject"] = "Block Number"
+                # ✅ Создаём FreeText БЕЗ фона (прозрачный, только текст)
+                freetext = page.add_freetext_annot(
+                    rect=label_rect,
+                    text=str(s.blockid),
+                    fontsize=11,
+                    fontname="helv",
+                    text_color=(0, 0.4, 0),  # Тёмно-зелёный текст
+                    fill_color=None,  # ✅ Прозрачный фон (фон уже нарисован через Shape)
+                    align=1,  # Центрирование: 0=left, 1=center, 2=right
+                )
 
-                sticky_note.update()
+                # Устанавливаем прозрачность
+                freetext.set_opacity(1.0)
+
+                # Добавляем метаданные для панели комментариев
+                freetext.info["title"] = f"Block {s.blockid}"
+                freetext.info["subject"] = f"Block Number ({s.type})"
+                freetext.info["content"] = f"Block #{s.blockid} - {s.type or 'Text'}"
+
+                freetext.update()
 
         doc.save(out_pdf, garbage=4, deflate=True)
 
