@@ -468,20 +468,19 @@ def run_pipeline_transactional(
 
         def _for_translation(s: Segment) -> bool:
             t = (s.text or "").strip()
+
             if not t:
                 return False
-            if len(t) < 5:
+
+            # ✅ Переводим ВСЕ заголовки
+            if s.type in ("title", "section_header", "caption", "page_header"):
+                return True
+
+            # Пропускаем только номера страниц
+            if t.isdigit() and s.type == "page_footer":
                 return False
-            if (
-                len(t.split()) == 1
-                and len(t) < 15
-                and s.type not in ("title", "section_header", "caption")
-            ):
-                return False
-            if t.isdigit() and len(t) < 4:
-                return False
-            if all(c in ".,;:!?-–—" for c in t):
-                return False
+
+            # Переводим всё остальное
             return True
 
         segs_for_translation = [s for s in page_batch.segments if _for_translation(s)]
@@ -725,7 +724,7 @@ def run_pipeline_pymupdf(
             base_url=lms_base,
         )
 
-        side = getattr(pb, "logical_side", "")
+        side = getattr(pb, "logicalside", "")
         for s in segs:
             translations[(pb.pagenumber, side, s.blockid)] = page_map.get(s.blockid, "")
 

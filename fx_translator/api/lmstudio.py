@@ -99,10 +99,11 @@ def lmstudio_translate_simple(
         adaptive_max_tokens = max(DEFAULT_MAX_TOKENS, word_count * 4)
 
         # Для коротких фраз — более строгий промпт
-        if word_count <= 2:
+        if word_count <= 3:  # Вместо <= 2
             system_prompt = (
-                f"Translate the following from {src_lang} to {tgt_lang}. "
-                f"Return ONLY the translation. Even single words must be translated."
+                f"Translate from {src_lang} to {tgt_lang}. "
+                f"IMPORTANT: Provide ONLY the direct translation. "
+                f"Do NOT transliterate. Do NOT add explanations."
             )
             adaptive_temperature = 0.4  # Выше для разнообразия
             user_content = clean_input

@@ -404,7 +404,7 @@ def extract_pages_pymupdf_advanced(
                         text=seg_data["text"],
                         type=seg_data["type"],
                         blockid=seg_data["blockid"],
-                        line_height=0.0,
+                        lineheight=0.0,
                     )
                 )
 
