@@ -34,23 +34,6 @@ def lmstudio_translate_simple(
 ) -> Dict[int, str]:
     """
     Переводит список сегментов через LM Studio API.
-
-    Использует OpenAI-compatible chat completion endpoint для перевода
-    каждого сегмента по отдельности.
-
-    Args:
-        model: Название модели в LM Studio
-        pagenumber: Номер страницы (для логирования)
-        segments: Список сегментов для перевода
-        src_lang: Исходный язык
-        tgt_lang: Целевой язык
-        base_url: Базовый URL LM Studio API
-        temperature: Температура генерации (0.0-1.0)
-        max_tokens: Максимальное количество токенов в ответе
-        timeout: Таймаут запроса в секундах
-
-    Returns:
-        Словарь {blockid: перевод} для успешно переведённых сегментов
     """
 
     def clean_text_input(t: str) -> str:
@@ -58,8 +41,7 @@ def lmstudio_translate_simple(
         if not t:
             return t
 
-        # Удаляем мягкий перенос и неразрывный пробел
-        t = t.replace("\\u00ad", "").replace("\\u00a0", " ")
+        t = t.replace("\u00ad", "").replace("\u00a0", " ")
 
         # Ограничиваем длину
         return " ".join(t.split())[:2000]
@@ -68,11 +50,10 @@ def lmstudio_translate_simple(
         """Очищает ответ модели от лишних префиксов."""
         content = content.strip()
 
-        # Удаляем обёртку в звёздочки
         if content.startswith("**") and content.endswith("**"):
-            lines = content.split("\\n")
+            lines = content.split("\n")
             if len(lines) >= 2 and lines[-1].strip() == "**":
-                content = "\\n".join(lines[1:-1])
+                content = "\n".join(lines[1:-1])
 
         # Удаляем типичные префиксы
         for prefix in ["**", "Translation:", "Перевод:", "Result:"]:
@@ -100,24 +81,47 @@ def lmstudio_translate_simple(
     for s in segs_nonempty:
         clean_input = clean_text_input(s.text)
 
+        if len(clean_input) <= 2 and not clean_input.isalnum():
+            results[s.blockid] = clean_input  # Возвращаем как есть
+            continue
+
+            # ✅ Пропускаем только пунктуацию
+        if all(c in "•·–—-()[]{}.,;:!?\"'" for c in clean_input):
+            results[s.blockid] = clean_input
+            continue
+
         if not clean_input:
             results[s.blockid] = ""
             continue
 
-        # Формируем промпт
-        system_prompt = (
-            f"Переведи текст с {src_lang} на {tgt_lang}. "
-            f"Отвечай только переводом, без комментариев и пояснений."
-        )
+        # Адаптивный max_tokens
+        word_count = len(clean_input.split())
+        adaptive_max_tokens = max(DEFAULT_MAX_TOKENS, word_count * 4)
+
+        # Для коротких фраз — более строгий промпт
+        if word_count <= 2:
+            system_prompt = (
+                f"Translate the following from {src_lang} to {tgt_lang}. "
+                f"Return ONLY the translation. Even single words must be translated."
+            )
+            adaptive_temperature = 0.4  # Выше для разнообразия
+            user_content = clean_input
+        else:
+            system_prompt = (
+                f"Переведи текст с {src_lang} на {tgt_lang}. "
+                f"Отвечай только переводом, без комментариев и пояснений."
+            )
+            adaptive_temperature = temperature
+            user_content = clean_input
 
         body = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": clean_input},
+                {"role": "user", "content": user_content},
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "temperature": adaptive_temperature,
+            "max_tokens": adaptive_max_tokens,
         }
 
         try:
@@ -135,6 +139,7 @@ def lmstudio_translate_simple(
             content = data["choices"][0]["message"].get("content", "")
             translation = clean_response(content)
 
+            # Если перевод пустой — используем оригинал
             results[s.blockid] = translation if translation else clean_input
 
         except Exception as e:

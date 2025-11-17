@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 import sys
+import os
 import logging
+
+if sys.platform == "win32":
+    os.environ["PYTHONIOENCODING"] = "utf-8"
 
 
 def setup_logging():

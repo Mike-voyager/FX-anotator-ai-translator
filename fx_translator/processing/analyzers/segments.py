@@ -23,7 +23,7 @@ from fx_translator.utils.text import clean_text_inplace
 # Регулярные выражения
 # ============================================================================
 
-_BULLET_RE = re.compile(r"^(?:[•·\\-–—]\\s+|\\d+[.)]\\s+)", re.UNICODE)
+_BULLET_RE = re.compile(r"^(?:[•·–—\-]\s+|\d+[.)]\\s+)", re.UNICODE)
 _END_PUNCT_RE = re.compile(r"[:!?…]\\s*$", re.UNICODE)
 _DROP_CAP_HEAD_RE = re.compile(r"^[A-ZÀ-ÖØ-Ý]\\b", re.UNICODE)
 
@@ -270,7 +270,7 @@ def _denoise_soft_linebreaks(
     seg: Segment,
     prev_len_thresh: Optional[int] = None,
     punct_break_re=re.compile(r"[.!?…:;]$"),
-    list_marker_re=re.compile(r"^(?:[•·\\-–—]|[0-9]+[.)])"),
+    list_marker_re=re.compile(r"^(?:[•·–—\-]|[0-9]+[.)])"),
 ) -> Segment:
     """
     Удаляет мягкие переносы строк внутри сегмента.

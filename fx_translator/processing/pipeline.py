@@ -78,7 +78,7 @@ def build_pages(seg_json: List[Dict[str, Any]]) -> List[PageBatch]:
     for pno in sorted(pages.keys()):
         segs = sort_segments_reading_order(pages[pno])
         for idx, s in enumerate(segs, start=1):
-            s.block_id = idx
+            s.blockid = idx
         batches.append(PageBatch(pagenumber=pno, segments=segs))
 
     return batches
@@ -198,8 +198,8 @@ def run_pipeline(
 
         side = getattr(page_batch, "logical_side", "")
         for s in segs_nonempty:
-            translations[(page_batch.pagenumber, side, s.block_id)] = page_map.get(
-                s.block_id, ""
+            translations[(page_batch.pagenumber, side, s.blockid)] = page_map.get(
+                s.blockid, ""
             )
 
         if pause_ms > 0:
@@ -468,19 +468,23 @@ def run_pipeline_transactional(
 
         def _for_translation(s: Segment) -> bool:
             t = (s.text or "").strip()
-            if not t or len(t) < 5:
+
+            if not t:
                 return False
-            if (
-                len(t.split()) == 1
-                and len(t) < 15
-                and s.type not in ("title", "section_header", "caption")
-            ):
+
+            # Переводим все заголовки и секции
+            if s.type in ("title", "section_header", "caption", "page_header"):
+                return True
+
+            # Пропускаем только номера страниц
+            if t.isdigit() and s.type == "page_footer":
                 return False
-            if t.isdigit() and len(t) < 4:
+
+            # Пропускаем маркеры списков
+            if len(t) <= 2 and t in "•·–—-":
                 return False
-            PUNCTUATION = set(".,;:!?-–—()[]{}\"'")
-            if all(c in PUNCTUATION for c in t):
-                return False
+
+            # Переводим всё остальное (даже короткие фразы)
             return True
 
         segs_for_translation = [s for s in page_batch.segments if _for_translation(s)]
@@ -496,8 +500,11 @@ def run_pipeline_transactional(
 
         side = getattr(page_batch, "logical_side", "")
         for s in segs_for_translation:
-            translations[(page_batch.pagenumber, side, s.block_id)] = page_map.get(
-                s.block_id, ""
+            logging.info(
+                f"Block {s.blockid}: original text = '{s.text}' (type: {s.type})"
+            )
+            translations[(page_batch.pagenumber, side, s.blockid)] = page_map.get(
+                s.blockid, ""
             )
 
         if pause_ms > 0:
@@ -514,6 +521,22 @@ def run_pipeline_transactional(
         annotation_type="none",  # С подсветкой
         include_translation=True,  # Включить перевод
     )
+    # Отладочный вывод
+    logging.info(f"Total translations: {len(translations)}")
+
+    # Группируем по страницам
+    from collections import defaultdict
+
+    by_page = defaultdict(dict)
+
+    for (pno, side, blockid), trans_text in translations.items():
+        by_page[(pno, side)][blockid] = trans_text
+
+    # Логируем по страницам
+    for (pno, side), trans_dict in by_page.items():
+        logging.info(f"Page ({pno}, {side}): {len(trans_dict)} translations")
+        for blockid, trans_text in trans_dict.items():
+            logging.info(f"  Block {blockid}: {trans_text[:50]}...")
 
     export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
 
@@ -532,7 +555,7 @@ def featurize_segments_for_llm(pb: PageBatch) -> Dict[str, Any]:
     for s in sort_segments_reading_order(pb.segments):
         feats.append(
             {
-                "block_id": s.block_id,
+                "blockid": s.blockid,
                 "bbox": [s.left, s.top, s.left + s.width, s.top + s.height],
                 "type": s.type,
                 "text": (s.text or "")[:400],  # ограничим длину
@@ -560,7 +583,7 @@ def llm_group_segments(
     """
     return {
         "groups": [
-            {"block_id": it["block_id"], "type": it.get("type", "paragraph")}
+            {"blockid": it["blockid"], "type": it.get("type", "paragraph")}
             for it in page_payload.get("segments", [])
         ]
     }
@@ -577,10 +600,10 @@ def apply_llm_groups(pb: PageBatch, grouping: Dict[str, Any]) -> PageBatch:
     Returns:
         Обновлённый PageBatch
     """
-    by_id = {s.block_id: s for s in pb.segments}
+    by_id = {s.blockid: s for s in pb.segments}
 
     for g in grouping.get("groups", []):
-        bid = int(g.get("block_id", 0))
+        bid = int(g.get("blockid", 0))
         new_type = str(g.get("type", "")).strip()
         if bid in by_id and new_type:
             by_id[bid].type = new_type
@@ -588,7 +611,7 @@ def apply_llm_groups(pb: PageBatch, grouping: Dict[str, Any]) -> PageBatch:
     # Возвращаем исходный порядок/нумерацию
     segs = sort_segments_reading_order(list(by_id.values()))
     for i, s in enumerate(segs, 1):
-        s.block_id = i
+        s.blockid = i
 
     return PageBatch(
         pagenumber=pb.pagenumber,
@@ -707,9 +730,7 @@ def run_pipeline_pymupdf(
 
         side = getattr(pb, "logical_side", "")
         for s in segs:
-            translations[(pb.pagenumber, side, s.block_id)] = page_map.get(
-                s.block_id, ""
-            )
+            translations[(pb.pagenumber, side, s.blockid)] = page_map.get(s.blockid, "")
 
         if pause_ms > 0:
             time.sleep(pause_ms / 1000.0)

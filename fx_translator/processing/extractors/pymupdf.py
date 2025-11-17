@@ -354,7 +354,7 @@ class AdvancedTextProcessor:
                     "pageheight": page.rect.height,
                     "text": block.merged_text,
                     "type": block.block_type,
-                    "block_id": i,
+                    "blockid": i,
                     "confidence": block.confidence,
                 }
             )
@@ -403,7 +403,7 @@ def extract_pages_pymupdf_advanced(
                         pageheight=seg_data["pageheight"],
                         text=seg_data["text"],
                         type=seg_data["type"],
-                        block_id=seg_data["block_id"],
+                        blockid=seg_data["blockid"],
                         line_height=0.0,
                     )
                 )
@@ -547,7 +547,7 @@ def run_pipeline_pymupdf(
                     )
                     seg.translated_text = translated[0] if translated else seg.text
                 except Exception as e:
-                    logging.error(f"    Ошибка перевода сегмента {seg.block_id}: {e}")
+                    logging.error(f"    Ошибка перевода сегмента {seg.blockid}: {e}")
                     seg.translated_text = seg.text
 
     logging.info("  Перевод завершён")

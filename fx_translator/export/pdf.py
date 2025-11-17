@@ -228,7 +228,7 @@ def _draw_big_label(
 
 
 def _format_big_label(
-    page_no: int, side: str, block_id: int, seg_type: str, fmt: str
+    page_no: int, side: str, blockid: int, seg_type: str, fmt: str
 ) -> List[str]:
     """
     Форматирует текст лейбла по шаблону.
@@ -236,7 +236,7 @@ def _format_big_label(
     Args:
         page_no: Номер страницы
         side: Сторона страницы ("L", "R" или "")
-        block_id: ID блока
+        blockid: ID блока
         seg_type: Тип сегмента
         fmt: Шаблон форматирования (поддерживает {p}, {s}, {b}, {t})
              Вертикальная черта | разделяет строки
@@ -247,7 +247,7 @@ def _format_big_label(
     payload = {
         "p": page_no,
         "s": side if side in ("L", "R") else "",
-        "b": block_id,
+        "b": blockid,
         "t": seg_type or "",
     }
 
