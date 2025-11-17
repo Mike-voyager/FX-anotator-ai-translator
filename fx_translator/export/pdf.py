@@ -345,7 +345,7 @@ def annotate_pdf_with_markup_annotations(
     input_pdf: str,
     out_pdf: str,
     pages: List[PageBatch],
-    annotation_type: str = "highlight",  # "highlight", "underline", "squiggly", "strikeout"
+    annotation_type: str = "highlight",
     show_popup: bool = True,
 ) -> None:
     """
@@ -360,18 +360,6 @@ def annotate_pdf_with_markup_annotations(
     """
     doc = pymupdf.open(input_pdf)
 
-    # Карта типов сегментов на цвета
-    type_colors = {
-        "title": (0.2, 0.6, 1.0),  # Синий
-        "section_header": (0.4, 0.7, 1.0),  # Светло-синий
-        "paragraph": (0.3, 0.8, 0.3),  # Зелёный
-        "list_item": (1.0, 0.8, 0.2),  # Жёлтый
-        "caption": (1.0, 0.6, 0.2),  # Оранжевый
-        "footnote": (0.7, 0.7, 0.7),  # Серый
-        "page_header": (0.9, 0.5, 0.5),  # Розовый
-        "page_footer": (0.9, 0.5, 0.5),  # Розовый
-    }
-
     try:
         for pb in pages:
             pno = pb.pagenumber - 1
@@ -385,10 +373,7 @@ def annotate_pdf_with_markup_annotations(
             for s in sort_segments_reading_order(pb.segments):
                 rect = pymupdf.Rect(s.left, s.top, s.left + s.width, s.top + s.height)
 
-                # Выбираем цвет по типу сегмента
-                color = type_colors.get(s.type, (1.0, 1.0, 0.0))  # Жёлтый по умолчанию
-
-                # Добавляем аннотацию выбранного типа
+                # ✅ Приятный зелёный highlight
                 if annotation_type == "highlight":
                     annot = page.add_highlight_annot(rect)
                 elif annotation_type == "underline":
@@ -400,8 +385,9 @@ def annotate_pdf_with_markup_annotations(
                 else:
                     annot = page.add_highlight_annot(rect)
 
-                annot.set_colors(stroke=color)
-                annot.set_opacity(0.3)
+                # ✅ Зелёный цвет для highlight (светло-зелёный)
+                annot.set_colors(stroke=(0.5, 1, 0.5))  # RGB: приятный зелёный
+                annot.set_opacity(0.35)  # Полупрозрачность
 
                 # Формируем текст комментария
                 comment_lines = [
@@ -421,6 +407,20 @@ def annotate_pdf_with_markup_annotations(
                 annot.info["subject"] = s.type or "Text"
 
                 annot.update()
+
+                sticky_note = page.add_text_annot(
+                    point=(rect.x0, rect.y0),  # Левый верхний угол блока
+                    text=f"Блок #{s.blockid}",  # Простой текст с номером
+                    icon="Comment",  # Иконка комментария
+                )
+
+                sticky_note.set_colors(stroke=(0.2, 0.8, 0.2))  # Тёмно-зелёный
+                sticky_note.set_opacity(1.0)  # Непрозрачная иконка
+
+                sticky_note.info["title"] = f"Block {s.blockid}"
+                sticky_note.info["subject"] = "Block Number"
+
+                sticky_note.update()
 
         doc.save(out_pdf, garbage=4, deflate=True)
 

@@ -63,7 +63,7 @@ class AppGUI:
         self.pdf_path = tk.StringVar()
         self.out_pdf = tk.StringVar()
         self.out_docx = tk.StringVar()
-        self.src_lang = tk.StringVar(value="en")
+        self.src_lang = tk.StringVar(value="it")
         self.tgt_lang = tk.StringVar(value="ru")
         self.force_split = tk.IntVar(value=1)
         self.force_split_excl = tk.StringVar(value="")
@@ -86,7 +86,7 @@ class AppGUI:
 
         # LM Studio параметры
         self.lms_base = tk.StringVar(value=DEFAULT_LMSTUDIO_BASE)
-        self.LMSTUDIO_MODEL = tk.StringVar(value=LMSTUDIO_MODEL)
+        self.lms_model = tk.StringVar(value=LMSTUDIO_MODEL)
         self.lms_batch_size = tk.IntVar(value=15)
 
         # Режимы обработки
@@ -96,15 +96,15 @@ class AppGUI:
 
         # Тестовые параметры
         self.page_limit = tk.IntVar(value=5)
-        self.test_start_page = tk.IntVar(value=1)
-        self.test_end_page = tk.IntVar(value=5)
+        self.test_start_page = tk.IntVar(value=6)
+        self.test_end_page = tk.IntVar(value=6)
 
         # Управление паузой
         self.pause_flag = threading.Event()
         self.pause_flag.set()
 
         self.use_pdf_comments = tk.BooleanVar(value=True)
-        self.pdf_annotation_type = tk.StringVar(value="highlight")
+        self.pdf_annotation_type = tk.StringVar(value="none")
 
         # Orchestrator
         self._orchestrator: Optional[Orchestrator] = None
@@ -222,7 +222,7 @@ class AppGUI:
         row += 1
 
         ttk.Label(frm, text="LM Studio model:").grid(row=row, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.LMSTUDIO_MODEL, width=40).grid(
+        ttk.Entry(frm, textvariable=self.lms_model, width=40).grid(
             row=row, column=1, sticky="ew"
         )
         row += 1
@@ -303,7 +303,7 @@ class AppGUI:
             values=["highlight", "underline", "squiggly", "none"],
             textvariable=self.pdf_annotation_type,
             width=12,
-            state="readonly",
+            state="none",
         ).grid(row=row, column=1, sticky="w")
         row += 1
 
@@ -398,7 +398,7 @@ class AppGUI:
             huridocs_internal_port=self.huridocs_internal_port.get(),
             use_gpu=self.use_gpu.get(),
             lms_base=self.lms_base.get(),
-            LMSTUDIO_MODEL=self.LMSTUDIO_MODEL.get(),
+            lms_model=self.lms_model.get(),
         )
 
     def on_huri_start(self):
@@ -537,7 +537,7 @@ class AppGUI:
                     src_lang=self.src_lang.get(),
                     tgt_lang=self.tgt_lang.get(),
                     lms_base=self.lms_base.get(),
-                    LMSTUDIO_MODEL=self.LMSTUDIO_MODEL.get(),
+                    lms_model=self.lms_model.get(),
                     start_page=start_page,
                     end_page=end_page,
                     use_llm_grouping=self.use_llm_grouping.get(),
@@ -560,7 +560,7 @@ class AppGUI:
                         huridocs_base=self.huridocs_base.get(),
                         huridocs_analyze_path=self.huridocs_analyze_path.get(),
                         lms_base=self.lms_base.get(),
-                        LMSTUDIO_MODEL=self.LMSTUDIO_MODEL.get(),
+                        lms_model=self.lms_model.get(),
                         force_split_exceptions=self.force_split_excl.get(),
                         force_split_spreads=bool(self.force_split.get()),
                         batch_size=batch_size,
@@ -584,7 +584,7 @@ class AppGUI:
                         huridocs_visualize_path=self.huridocs_visualize_path.get()
                         or None,
                         lms_base=self.lms_base.get(),
-                        LMSTUDIO_MODEL=self.LMSTUDIO_MODEL.get(),
+                        lms_model=self.lms_model.get(),
                         split_spreads_enabled=split_spreads_enabled,
                         batch_size=batch_size,
                         page_limit=(

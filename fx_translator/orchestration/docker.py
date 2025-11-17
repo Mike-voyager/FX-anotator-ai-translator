@@ -112,7 +112,7 @@ class Orchestrator:
         self.huridocs_internal_port = huridocs_internal_port
         self.use_gpu = use_gpu
         self.lms_base = lms_base
-        self.LMSTUDIO_MODEL = LMSTUDIO_MODEL
+        self.lms_model = LMSTUDIO_MODEL
 
         self.huridocs_base_url: Optional[str] = None
 

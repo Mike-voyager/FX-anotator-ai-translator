@@ -74,7 +74,7 @@ def denoise_soft_linebreaks(
     seg: Segment,
     prevlenthresh: Optional[int] = None,
     punctbreakre: re.Pattern = re.compile(r"[.!?]$"),
-    listmarkerre: re.Pattern = re.compile(r"^[•\\-–—0-9.]\\s"),
+    listmarkerre: re.Pattern = re.compile(r"^[•–—0-9.\-]\s"),
 ) -> Segment:
     """
     Удаляет мягкие переносы строк внутри сегмента, объединяя строки,

@@ -305,10 +305,10 @@ class AdvancedTextProcessor:
             return "caption"
 
         # Проверка на колонтитулы по позиции
-        page_height = getattr(block, "page_height", 800)
-        if block.bbox[1] < page_height * 0.1:  # верхние 10%
+        pageheight = getattr(block, "pageheight", 800)
+        if block.bbox[1] < pageheight * 0.1:  # верхние 10%
             return "page_header"
-        elif block.bbox[3] > page_height * 0.9:  # нижние 10%
+        elif block.bbox[3] > pageheight * 0.9:  # нижние 10%
             return "page_footer"
 
         return "paragraph"
@@ -345,13 +345,13 @@ class AdvancedTextProcessor:
             bbox = block.bbox
             result.append(
                 {
-                    "page_number": page.number + 1,
+                    "pagenumber": page.number + 1,
                     "left": bbox[0],
                     "top": bbox[1],
                     "width": bbox[2] - bbox[0],
                     "height": bbox[3] - bbox[1],
-                    "page_width": page.rect.width,
-                    "page_height": page.rect.height,
+                    "pagewidth": page.rect.width,
+                    "pageheight": page.rect.height,
                     "text": block.merged_text,
                     "type": block.block_type,
                     "block_id": i,
@@ -394,13 +394,13 @@ def extract_pages_pymupdf_advanced(
             for seg_data in segments_data:
                 segs.append(
                     Segment(
-                        page_number=seg_data["page_number"],
+                        pagenumber=seg_data["pagenumber"],
                         left=seg_data["left"],
                         top=seg_data["top"],
                         width=seg_data["width"],
                         height=seg_data["height"],
-                        page_width=seg_data["page_width"],
-                        page_height=seg_data["page_height"],
+                        pagewidth=seg_data["pagewidth"],
+                        pageheight=seg_data["pageheight"],
                         text=seg_data["text"],
                         type=seg_data["type"],
                         block_id=seg_data["block_id"],
@@ -408,7 +408,7 @@ def extract_pages_pymupdf_advanced(
                     )
                 )
 
-            out.append(PageBatch(page_number=i + 1, segments=segs))
+            out.append(PageBatch(pagenumber=i + 1, segments=segs))
 
         return out
 

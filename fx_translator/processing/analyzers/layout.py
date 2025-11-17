@@ -20,7 +20,7 @@ from fx_translator.utils.text import parse_page_set
 
 def split_spreads(
     pages: List[PageBatch],
-    pdfpath: str,
+    pdf_path: str,
     ratio_threshold: tuple = (1.25, 1.4),
     center_image_threshold: float = 0.33,
     debug: bool = True,
@@ -33,7 +33,7 @@ def split_spreads(
 
     Args:
         pages: Список батчей страниц
-        pdfpath: Путь к PDF файлу
+        pdf_path: Путь к PDF файлу
         ratio_threshold: Диапазон соотношений ширины/высоты для определения разворота
         center_image_threshold: Порог ширины центрального блока (доля от ширины страницы)
         debug: Включить отладочные сообщения
@@ -42,7 +42,7 @@ def split_spreads(
         Список обработанных PageBatch (развороты разделены на L/R)
     """
     result: List[PageBatch] = []
-    doc = pymupdf.open(pdfpath)
+    doc = pymupdf.open(pdf_path)
 
     try:
         for pb in pages:

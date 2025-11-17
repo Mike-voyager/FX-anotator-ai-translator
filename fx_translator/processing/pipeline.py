@@ -57,28 +57,29 @@ def build_pages(seg_json: List[Dict[str, Any]]) -> List[PageBatch]:
     Returns:
         Список PageBatch с сегментами, сгруппированными по страницам
     """
+    logging.debug(f"Building pages from {len(seg_json)} segments")
     pages: Dict[int, List[Segment]] = {}
 
     for it in seg_json:
         seg = Segment(
-            page_number=int(it.get("page_number")),
+            pagenumber=int(it.get("pagenumber")),
             left=float(it.get("left")),
             top=float(it.get("top")),
             width=float(it.get("width")),
             height=float(it.get("height")),
-            page_width=float(it.get("page_width")),
-            page_height=float(it.get("page_height")),
+            pagewidth=float(it.get("pagewidth")),
+            pageheight=float(it.get("pageheight")),
             text=str(it.get("text") or "").strip(),
             type=str(it.get("type") or "Text"),
         )
-        pages.setdefault(seg.page_number, []).append(seg)
+        pages.setdefault(seg.pagenumber, []).append(seg)
 
     batches: List[PageBatch] = []
     for pno in sorted(pages.keys()):
         segs = sort_segments_reading_order(pages[pno])
         for idx, s in enumerate(segs, start=1):
             s.block_id = idx
-        batches.append(PageBatch(page_number=pno, segments=segs))
+        batches.append(PageBatch(pagenumber=pno, segments=segs))
 
     return batches
 
@@ -155,7 +156,7 @@ def run_pipeline(
 
     # Разделение разворотов
     if split_spreads_enabled:
-        total_pages = max((pb.page_number for pb in pages), default=0)
+        total_pages = max((pb.pagenumber for pb in pages), default=0)
         if force_split_spreads:
             ex = parse_page_set(force_split_exceptions, total_pages)
             pages = split_spreads_force_half(pages, ex)
@@ -169,7 +170,7 @@ def run_pipeline(
             logging.info("После сплита (auto) логических страниц: %d.", len(pages))
 
     # Мягкая волна обработки после сплита
-    pages = [refine_huridocs_segments(pb, x_tol=9.0, gap_tol=10.0) for pb in pages]
+    pages = [refine_huridocs_segments(pb, xtol=9.0, gaptol=10.0) for pb in pages]
     pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
 
     # Шаг 2: Перевод
@@ -188,7 +189,7 @@ def run_pipeline(
 
         page_map = lmstudio_translate_simple(
             model=lms_model,
-            page_number=page_batch.page_number,
+            pagenumber=page_batch.pagenumber,
             segments=segs_nonempty,
             src_lang=src_lang,
             tgt_lang=tgt_lang,
@@ -197,7 +198,7 @@ def run_pipeline(
 
         side = getattr(page_batch, "logical_side", "")
         for s in segs_nonempty:
-            translations[(page_batch.page_number, side, s.block_id)] = page_map.get(
+            translations[(page_batch.pagenumber, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
 
@@ -320,9 +321,9 @@ def analyze_pdf_transactional(
 
                 # Корректируем номера страниц
                 for it in seg_json:
-                    it["page_number"] = pno
-                    it["page_width"] = pw
-                    it["page_height"] = ph
+                    it["pagenumber"] = pno
+                    it["pagewidth"] = pw
+                    it["pageheight"] = ph
 
                 batches = build_pages(seg_json)
                 if batches:
@@ -440,7 +441,7 @@ def run_pipeline_transactional(
 
     # Сплит разворотов
     if split_spreads_enabled:
-        total_pages = max((pb.page_number for pb in pages), default=0)
+        total_pages = max((pb.pagenumber for pb in pages), default=0)
         if force_split_spreads:
             ex = parse_page_set(force_split_exceptions, total_pages)
             pages = split_spreads_force_half(pages, ex)
@@ -454,7 +455,7 @@ def run_pipeline_transactional(
             logging.info("После сплита (auto) логических страниц: %d.", len(pages))
 
     # Мягкая волна после сплита
-    pages = [refine_huridocs_segments(pb, x_tol=9.0, gap_tol=10.0) for pb in pages]
+    pages = [refine_huridocs_segments(pb, xtol=9.0, gaptol=10.0) for pb in pages]
     pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
 
     # Перевод (фильтруем минимально значимые сегменты)
@@ -477,7 +478,8 @@ def run_pipeline_transactional(
                 return False
             if t.isdigit() and len(t) < 4:
                 return False
-            if all(c in ".,;:!?-–—()[]{}\"'" for c in t):
+            PUNCTUATION = set(".,;:!?-–—()[]{}\"'")
+            if all(c in PUNCTUATION for c in t):
                 return False
             return True
 
@@ -485,7 +487,7 @@ def run_pipeline_transactional(
 
         page_map = lmstudio_translate_simple(
             model=lms_model,
-            page_number=page_batch.page_number,
+            pagenumber=page_batch.pagenumber,
             segments=segs_for_translation,
             src_lang=src_lang,
             tgt_lang=tgt_lang,
@@ -494,7 +496,7 @@ def run_pipeline_transactional(
 
         side = getattr(page_batch, "logical_side", "")
         for s in segs_for_translation:
-            translations[(page_batch.page_number, side, s.block_id)] = page_map.get(
+            translations[(page_batch.pagenumber, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
 
@@ -536,7 +538,7 @@ def featurize_segments_for_llm(pb: PageBatch) -> Dict[str, Any]:
                 "text": (s.text or "")[:400],  # ограничим длину
             }
         )
-    return {"page_number": pb.page_number, "segments": feats}
+    return {"pagenumber": pb.pagenumber, "segments": feats}
 
 
 def llm_group_segments(
@@ -589,7 +591,7 @@ def apply_llm_groups(pb: PageBatch, grouping: Dict[str, Any]) -> PageBatch:
         s.block_id = i
 
     return PageBatch(
-        page_number=pb.page_number,
+        pagenumber=pb.pagenumber,
         segments=segs,
         logical_side=getattr(pb, "logical_side", ""),
     )
@@ -650,7 +652,7 @@ def run_pipeline_pymupdf(
     # Разделение разворотов
     if split_spreads_enabled:
         if force_split_spreads:
-            total_pages = max((pb.page_number for pb in pages), default=0)
+            total_pages = max((pb.pagenumber for pb in pages), default=0)
             ex = parse_page_set(force_split_exceptions, total_pages)
             pages = split_spreads_force_half(pages, ex)
             logging.info(
@@ -675,7 +677,7 @@ def run_pipeline_pymupdf(
                 grouped.append(apply_llm_groups(pb, grouping))
             except Exception as e:
                 logging.warning(
-                    f"LLM grouping failed on page {pb.page_number}: {e} — using passthrough"
+                    f"LLM grouping failed on page {pb.pagenumber}: {e} — using passthrough"
                 )
                 grouped.append(pb)
         pages = grouped
@@ -696,7 +698,7 @@ def run_pipeline_pymupdf(
 
         page_map = lmstudio_translate_simple(
             model=lms_model,
-            page_number=pb.page_number,
+            pagenumber=pb.pagenumber,
             segments=segs,
             src_lang=src_lang,
             tgt_lang=tgt_lang,
@@ -705,7 +707,7 @@ def run_pipeline_pymupdf(
 
         side = getattr(pb, "logical_side", "")
         for s in segs:
-            translations[(pb.page_number, side, s.block_id)] = page_map.get(
+            translations[(pb.pagenumber, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
 

@@ -23,7 +23,7 @@ from fx_translator.api.base import HTTP
 
 def lmstudio_translate_simple(
     model: str,
-    page_number: int,
+    pagenumber: int,
     segments: List[Segment],
     src_lang: str,
     tgt_lang: str,
@@ -40,7 +40,7 @@ def lmstudio_translate_simple(
 
     Args:
         model: Название модели в LM Studio
-        page_number: Номер страницы (для логирования)
+        pagenumber: Номер страницы (для логирования)
         segments: Список сегментов для перевода
         src_lang: Исходный язык
         tgt_lang: Целевой язык
@@ -125,13 +125,20 @@ def lmstudio_translate_simple(
             resp.raise_for_status()
 
             data = resp.json()
+            if "choices" not in data or not data["choices"]:
+                logging.warning(
+                    f"Страница {pagenumber}, блок {s.blockid}: LM Studio вернул пустой ответ"
+                )
+                results[s.blockid] = clean_input
+                continue
+
             content = data["choices"][0]["message"].get("content", "")
             translation = clean_response(content)
 
             results[s.blockid] = translation if translation else clean_input
 
         except Exception as e:
-            logging.warning(f"Страница {page_number}, блок {s.blockid}: {e}")
+            logging.warning(f"Страница {pagenumber}, блок {s.blockid}: {e}")
             results[s.blockid] = clean_input
 
     return results
