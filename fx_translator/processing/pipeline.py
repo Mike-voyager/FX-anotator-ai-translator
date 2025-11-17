@@ -468,23 +468,20 @@ def run_pipeline_transactional(
 
         def _for_translation(s: Segment) -> bool:
             t = (s.text or "").strip()
-
             if not t:
                 return False
-
-            # Переводим все заголовки и секции
-            if s.type in ("title", "section_header", "caption", "page_header"):
-                return True
-
-            # Пропускаем только номера страниц
-            if t.isdigit() and s.type == "page_footer":
+            if len(t) < 5:
                 return False
-
-            # Пропускаем маркеры списков
-            if len(t) <= 2 and t in "•·–—-":
+            if (
+                len(t.split()) == 1
+                and len(t) < 15
+                and s.type not in ("title", "section_header", "caption")
+            ):
                 return False
-
-            # Переводим всё остальное (даже короткие фразы)
+            if t.isdigit() and len(t) < 4:
+                return False
+            if all(c in ".,;:!?-–—" for c in t):
+                return False
             return True
 
         segs_for_translation = [s for s in page_batch.segments if _for_translation(s)]
