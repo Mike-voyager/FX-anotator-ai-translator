@@ -21,9 +21,9 @@ HURIDOCS_VISUALIZE_PATH = os.environ.get("HURIDOCS_VISUALIZE_PATH", "visualize")
 # LM Studio Configuration
 # ============================================================================
 
-DEFAULT_LMSTUDIO_BASE = os.environ.get("LMS_BASE", "http://127.0.0.1:5555/v1")
+DEFAULT_LMSTUDIO_BASE = os.environ.get("DEFAULT_LMSTUDIO_BASE", "http://127.0.0.1:1234")
 LMSTUDIO_CHAT_PATH = "chat/completions"
-LMSTUDIO_MODEL = os.environ.get("LMS_MODEL", "google/gemma-3n-e4b")
+LMSTUDIO_MODEL = os.environ.get("LMSTUDIO_MODEL", "google/gemma-3-4b")
 LMSTUDIO_API_KEY = os.environ.get("LMS_API_KEY", "lm-studio")
 
 

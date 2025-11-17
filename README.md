@@ -91,7 +91,7 @@ Copy `.env.example` to `.env` and configure:
 ```env
 HURIDOCS_BASE=http://localhost:5060
 LMS_BASE=http://127.0.0.1:5555/v1
-LMS_MODEL=your-model-name
+LMSTUDIO_MODEL=your-model-name
 ```
 
 ---

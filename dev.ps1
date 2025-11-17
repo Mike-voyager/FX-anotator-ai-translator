@@ -17,6 +17,17 @@ function Show-Help {
     Write-Host "  .\dev.ps1 clean         - Remove cache files"
 }
 
+function Install-Deps {
+    Write-Host "Installing production dependencies..." -ForegroundColor Green
+    pip install -r requirements.txt
+}
+
+function Install-DevDeps {
+    Write-Host "Installing all dependencies..." -ForegroundColor Green
+    pip install -r requirements.txt
+    pip install -r requirements-dev.txt
+}
+
 function Format-Code {
     Write-Host "Formatting code with black..." -ForegroundColor Green
     black fx_translator/ main.py
@@ -29,7 +40,7 @@ function Check-Format {
 
 function Run-Mypy {
     Write-Host "Running mypy type checker..." -ForegroundColor Green
-    mypy fx_translator/ main.py
+    mypy --explicit-package-bases fx_translator/ main.py
 }
 
 function Run-Lint {
@@ -52,10 +63,12 @@ function Clean-Cache {
 }
 
 switch ($Command) {
-    'format' { Format-Code }
-    'check'  { Check-Format }
-    'mypy'   { Run-Mypy }
-    'lint'   { Run-Lint }
-    'clean'  { Clean-Cache }
-    'help'   { Show-Help }
+    'install'     { Install-Deps }
+    'install-dev' { Install-DevDeps }
+    'format'      { Format-Code }
+    'check'       { Check-Format }
+    'mypy'        { Run-Mypy }
+    'lint'        { Run-Lint }
+    'clean'       { Clean-Cache }
+    'help'        { Show-Help }
 }

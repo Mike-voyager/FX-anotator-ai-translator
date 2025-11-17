@@ -12,6 +12,7 @@ import os
 import logging
 import time
 import contextlib
+import requests
 import tempfile
 from typing import List, Dict, Tuple, Optional, Callable, Any
 
@@ -24,8 +25,8 @@ from fx_translator.core.models import PageBatch, Segment
 from fx_translator.core.config import (
     DEFAULT_HURIDOCS_BASE,
     HURIDOCS_ANALYZE_PATH,
-    DEFAULT_LMS_BASE,
-    LMS_MODEL,
+    DEFAULT_LMSTUDIO_BASE,
+    LMSTUDIO_MODEL,
 )
 from fx_translator.api.huridocs import huridocs_analyze_pdf, huridocs_analyze_pdf_smart
 from fx_translator.api.lmstudio import lmstudio_translate_simple
@@ -34,7 +35,7 @@ from fx_translator.utils.geometry import sort_segments_reading_order
 from fx_translator.utils.metrics import init_metrics, log_metric, Timer
 from fx_translator.processing.analyzers.segments import (
     refine_huridocs_segments,
-    deglue_pages_pdf_aware,
+    deglue_pages_pdfaware,
 )
 from fx_translator.processing.analyzers.layout import (
     split_spreads,
@@ -49,15 +50,15 @@ from fx_translator.export.pdf import annotate_pdf_with_segments
 def build_pages(seg_json: List[Dict[str, Any]]) -> List[PageBatch]:
     """
     Преобразует JSON сегменты из HURIDOCS в PageBatch объекты.
-    
+
     Args:
         seg_json: Список сегментов в JSON формате от HURIDOCS
-        
+
     Returns:
         Список PageBatch с сегментами, сгруппированными по страницам
     """
     pages: Dict[int, List[Segment]] = {}
-    
+
     for it in seg_json:
         seg = Segment(
             page_number=int(it.get("page_number")),
@@ -71,15 +72,17 @@ def build_pages(seg_json: List[Dict[str, Any]]) -> List[PageBatch]:
             type=str(it.get("type") or "Text"),
         )
         pages.setdefault(seg.page_number, []).append(seg)
-    
+
     batches: List[PageBatch] = []
     for pno in sorted(pages.keys()):
         segs = sort_segments_reading_order(pages[pno])
         for idx, s in enumerate(segs, start=1):
             s.block_id = idx
         batches.append(PageBatch(page_number=pno, segments=segs))
-    
+
     return batches
+
+
 def run_pipeline(
     input_pdf: str,
     out_pdf_annotated: str,
@@ -89,8 +92,8 @@ def run_pipeline(
     huridocs_base: str = DEFAULT_HURIDOCS_BASE,
     huridocs_analyze_path: str = HURIDOCS_ANALYZE_PATH,
     huridocs_visualize_path: Optional[str] = None,
-    lms_base: str = DEFAULT_LMS_BASE,
-    lms_model: str = LMS_MODEL,
+    lms_base: str = DEFAULT_LMSTUDIO_BASE,
+    lms_model: str = LMSTUDIO_MODEL,
     batch_size: int = 15,
     force_split_spreads: bool = False,
     force_split_exceptions: str = "",
@@ -103,7 +106,7 @@ def run_pipeline(
 ) -> None:
     """
     Стандартный конвейер обработки PDF через HURIDOCS.
-    
+
     Этапы:
     1. Анализ PDF через HURIDOCS API (все страницы сразу)
     2. Обработка и рафинирование сегментов
@@ -111,7 +114,7 @@ def run_pipeline(
     4. Deglue операции для слипшихся блоков
     5. Перевод через LM Studio
     6. Экспорт в DOCX и аннотированный PDF
-    
+
     Args:
         input_pdf: Путь к входному PDF файлу
         out_pdf_annotated: Путь для сохранения аннотированного PDF
@@ -123,6 +126,7 @@ def run_pipeline(
         huridocs_visualize_path: Путь endpoint визуализации (опционально)
         lms_base: URL LM Studio API
         lms_model: Название модели в LM Studio
+
         batch_size: Размер батча для обработки
         force_split_spreads: Принудительно делить развороты пополам
         force_split_exceptions: Страницы-исключения для split (формат: "1,3-5,10")
@@ -134,21 +138,21 @@ def run_pipeline(
         split_spreads_enabled: Включить разделение разворотов
     """
     init_metrics(out_docx)
-    
+
     logging.info("Шаг 1/3: Анализ макета через HURIDOCS...")
     seg_json = huridocs_analyze_pdf(input_pdf, huridocs_base, huridocs_analyze_path)
     pages = build_pages(seg_json)
-    
+
     # Мягкая волна обработки до сплита
     pages = [refine_huridocs_segments(pb) for pb in pages]
-    pages = deglue_pages_pdf_aware(pages, pdf_path=input_pdf)
-    
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
     # Ограничение диапазона страниц
     if start_page is not None and end_page is not None:
         pages = pages[start_page - 1 : end_page]
     elif page_limit and len(pages) > page_limit:
         pages = pages[:page_limit]
-    
+
     # Разделение разворотов
     if split_spreads_enabled:
         total_pages = max((pb.page_number for pb in pages), default=0)
@@ -163,25 +167,25 @@ def run_pipeline(
         else:
             pages = split_spreads(pages, pdf_path=input_pdf, debug=True)
             logging.info("После сплита (auto) логических страниц: %d.", len(pages))
-    
+
     # Мягкая волна обработки после сплита
     pages = [refine_huridocs_segments(pb, x_tol=9.0, gap_tol=10.0) for pb in pages]
-    pages = deglue_pages_pdf_aware(pages, pdf_path=input_pdf)
-    
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
     # Шаг 2: Перевод
     logging.info("Шаг 2/3: Перевод страниц через LM Studio...")
     translations: Dict[Tuple[int, str, int], str] = {}
-    
+
     for page_batch in pages:
         if pause_hook:
             pause_hook()
-        
+
         segs_nonempty = [s for s in page_batch.segments if s.text.strip()]
         if not segs_nonempty:
             if pause_ms > 0:
                 time.sleep(pause_ms / 1000.0)
             continue
-        
+
         page_map = lmstudio_translate_simple(
             model=lms_model,
             page_number=page_batch.page_number,
@@ -190,168 +194,179 @@ def run_pipeline(
             tgt_lang=tgt_lang,
             base_url=lms_base,
         )
-        
+
         side = getattr(page_batch, "logical_side", "")
         for s in segs_nonempty:
             translations[(page_batch.page_number, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
-        
+
         if pause_ms > 0:
             time.sleep(pause_ms / 1000.0)
-    
+
     # Шаг 3: Вывод
     logging.info("Шаг 3/3: Генерация вывода (PDF + DOCX)...")
     assert_layout_invariants(pages)
-    annotate_pdf_with_segments(input_pdf, out_pdf_annotated, pages)
+    annotate_pdf_with_segments(
+        input_pdf,
+        out_pdf_annotated,
+        pages,
+        use_comments=True,  # Использовать комментарии
+        annotation_type="none",  # С подсветкой
+        include_translation=True,  # Включить перевод
+    )
+
     export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
-    
+
     logging.info(f"Готово: {out_pdf_annotated} и {out_docx}")
-    def analyze_pdf_transactional(
-        input_pdf: str,
-        huridocs_base: Optional[str] = None,
-        analyze_path: str = HURIDOCS_ANALYZE_PATH,
-        orchestrator: Optional[Any] = None,
-        restart_every: int = 0,
-        start_page: Optional[int] = None,
-        end_page: Optional[int] = None,
-        per_page_timeout: int = 600,
-    ) -> List[PageBatch]:
-        """
-        Постраничный анализ с умным управлением контейнером.
-        
-        Обрабатывает каждую страницу отдельно:
-        - Извлекает одну страницу в временный PDF
-        - Отправляет на анализ в HURIDOCS
-        - Управляет перезапуском контейнера при необходимости
-        
-        Args:
-            input_pdf: Путь к входному PDF файлу
-            huridocs_base: URL HURIDOCS API
-            analyze_path: Путь endpoint анализа
-            orchestrator: Объект Orchestrator для управления контейнером
-            restart_every: Перезапуск контейнера каждые N страниц (0 = отключено)
-            start_page: Начальная страница (1-based)
-            end_page: Конечная страница (1-based)
-            per_page_timeout: Таймаут на обработку одной страницы
-            
-        Returns:
-            Список PageBatch объектов
-        """
-        doc = pymupdf.open(input_pdf)
-        
-        try:
-            total_pages = doc.page_count
-            p_start = start_page or 1
-            p_end = end_page or total_pages
-            
-            if not (1 <= p_start <= p_end <= total_pages):
-                raise ValueError(
-                    f"Неверный диапазон страниц: {p_start}..{p_end} из {total_pages}"
-                )
-            
-            base_url = huridocs_base or (
-                f"http://localhost:{orchestrator.huridocs_port}"
-                if orchestrator
-                else DEFAULT_HURIDOCS_BASE
+
+
+def analyze_pdf_transactional(
+    input_pdf: str,
+    huridocs_base: Optional[str] = None,
+    analyze_path: str = HURIDOCS_ANALYZE_PATH,
+    orchestrator: Optional[Any] = None,
+    restart_every: int = 0,
+    start_page: Optional[int] = None,
+    end_page: Optional[int] = None,
+    per_page_timeout: int = 600,
+) -> List[PageBatch]:
+    """
+    Постраничный анализ с умным управлением контейнером.
+
+    Обрабатывает каждую страницу отдельно:
+    - Извлекает одну страницу в временный PDF
+    - Отправляет на анализ в HURIDOCS
+    - Управляет перезапуском контейнера при необходимости
+
+    Args:
+        input_pdf: Путь к входному PDF файлу
+        huridocs_base: URL HURIDOCS API
+        analyze_path: Путь endpoint анализа
+        orchestrator: Объект Orchestrator для управления контейнером
+        restart_every: Перезапуск контейнера каждые N страниц (0 = отключено)
+        start_page: Начальная страница (1-based)
+        end_page: Конечная страница (1-based)
+        per_page_timeout: Таймаут на обработку одной страницы
+
+    Returns:
+        Список PageBatch объектов
+    """
+    doc = pymupdf.open(input_pdf)
+
+    try:
+        total_pages = doc.page_count
+        p_start = start_page or 1
+        p_end = end_page or total_pages
+
+        if not (1 <= p_start <= p_end <= total_pages):
+            raise ValueError(
+                f"Неверный диапазон страниц: {p_start}..{p_end} из {total_pages}"
             )
-            
-            # Запускаем контейнер если нужно
-            if orchestrator:
-                orchestrator.start_huridocs(lambda m: None)
-                base_url = orchestrator.get_base_url()
-            
-            out_batches: List[PageBatch] = []
-            
-            for idx, pno in enumerate(range(p_start, p_end + 1), 1):
-                # Перезапуск контейнера каждые N страниц
-                if (
-                    orchestrator
-                    and restart_every > 0
-                    and idx > 1
-                    and (idx - 1) % restart_every == 0
-                ):
-                    with contextlib.suppress(Exception):
-                        orchestrator.stop_huridocs(lambda m: None)
-                        orchestrator.start_huridocs(lambda m: None)
-                        base_url = orchestrator.get_base_url()
-                
-                tmp_path: Optional[str] = None
-                
-                try:
-                    # Извлекаем одну страницу
-                    page_idx = pno - 1
-                    page = doc[page_idx]
-                    pw, ph = page.rect.width, page.rect.height
-                    
-                    # Создаём временный PDF с одной страницей
-                    out_doc = pymupdf.open()
-                    out_doc.insert_pdf(doc, from_page=page_idx, to_page=page_idx)
-                    
-                    import tempfile
-                    fd, tmp_path = tempfile.mkstemp(prefix=f"page-{pno}-", suffix=".pdf")
-                    os.close(fd)
-                    
-                    out_doc.save(tmp_path, garbage=4, deflate=True)
-                    out_doc.close()
-                    
-                    # Анализируем через HURIDOCS
-                    seg_json = huridocs_analyze_pdf_smart(
-                        tmp_path,
-                        base_url=base_url,
-                        analyze_path=analyze_path,
-                        timeout=per_page_timeout,
-                    )
-                    
-                    # Корректируем номера страниц
-                    for it in seg_json:
-                        it["page_number"] = pno
-                        it["page_width"] = pw
-                        it["page_height"] = ph
-                    
-                    batches = build_pages(seg_json)
-                    if batches:
-                        out_batches.append(batches[0])
-                    
-                except (requests.Timeout, requests.ConnectionError) as e:
-                    logging.warning(
-                        f"Страница {pno}: таймаут/ошибка соединения HURIDOCS. Попытка перезапуска..."
-                    )
-                    if orchestrator and orchestrator.maybe_restart_on_failure(
-                        lambda m: None, err=e
-                    ):
-                        base_url = orchestrator.get_base_url()
-                        continue
-                
-                except requests.HTTPError as e:
-                    status_code = getattr(e.response, "status_code", None)
-                    logging.warning(
-                        f"Страница {pno}: HTTP ошибка {status_code} от HURIDOCS. Попытка перезапуска..."
-                    )
-                    if orchestrator and orchestrator.maybe_restart_on_failure(
-                        lambda m: None, status_code=status_code
-                    ):
-                        base_url = orchestrator.get_base_url()
-                        continue
-                
-                except Exception as e:
-                    logging.warning(f"Страница {pno}: общая ошибка анализа — {e}")
-                    continue
-                
-                finally:
-                    if tmp_path and os.path.exists(tmp_path):
-                        with contextlib.suppress(Exception):
-                            os.remove(tmp_path)
-            
-            # Останавливаем контейнер после обработки
-            if orchestrator:
+
+        base_url = huridocs_base or (
+            f"http://localhost:{orchestrator.huridocs_port}"
+            if orchestrator
+            else DEFAULT_HURIDOCS_BASE
+        )
+
+        # Запускаем контейнер если нужно
+        if orchestrator:
+            orchestrator.start_huridocs(lambda m: None)
+            base_url = orchestrator.get_base_url()
+
+        out_batches: List[PageBatch] = []
+
+        for idx, pno in enumerate(range(p_start, p_end + 1), 1):
+            # Перезапуск контейнера каждые N страниц
+            if (
+                orchestrator
+                and restart_every > 0
+                and idx > 1
+                and (idx - 1) % restart_every == 0
+            ):
                 with contextlib.suppress(Exception):
                     orchestrator.stop_huridocs(lambda m: None)
-            
-            return out_batches
-            
-        finally:
-            doc.close()
+                    orchestrator.start_huridocs(lambda m: None)
+                    base_url = orchestrator.get_base_url()
+
+            tmp_path: Optional[str] = None
+
+            try:
+                # Извлекаем одну страницу
+                page_idx = pno - 1
+                page = doc[page_idx]
+                pw, ph = page.rect.width, page.rect.height
+
+                # Создаём временный PDF с одной страницей
+                out_doc = pymupdf.open()
+                out_doc.insert_pdf(doc, from_page=page_idx, to_page=page_idx)
+
+                import tempfile
+
+                fd, tmp_path = tempfile.mkstemp(prefix=f"page-{pno}-", suffix=".pdf")
+                os.close(fd)
+
+                out_doc.save(tmp_path, garbage=4, deflate=True)
+                out_doc.close()
+
+                # Анализируем через HURIDOCS
+                seg_json = huridocs_analyze_pdf_smart(
+                    tmp_path,
+                    base_url=base_url,
+                    analyze_path=analyze_path,
+                    timeout=per_page_timeout,
+                )
+
+                # Корректируем номера страниц
+                for it in seg_json:
+                    it["page_number"] = pno
+                    it["page_width"] = pw
+                    it["page_height"] = ph
+
+                batches = build_pages(seg_json)
+                if batches:
+                    out_batches.append(batches[0])
+
+            except (requests.Timeout, requests.ConnectionError) as e:
+                logging.warning(
+                    f"Страница {pno}: таймаут/ошибка соединения HURIDOCS. Попытка перезапуска..."
+                )
+                if orchestrator and orchestrator.maybe_restart_on_failure(
+                    lambda m: None, err=e
+                ):
+                    base_url = orchestrator.get_base_url()
+                    continue
+
+            except requests.HTTPError as e:
+                status_code = getattr(e.response, "status_code", None)
+                logging.warning(
+                    f"Страница {pno}: HTTP ошибка {status_code} от HURIDOCS. Попытка перезапуска..."
+                )
+                if orchestrator and orchestrator.maybe_restart_on_failure(
+                    lambda m: None, status_code=status_code
+                ):
+                    base_url = orchestrator.get_base_url()
+                    continue
+
+            except Exception as e:
+                logging.warning(f"Страница {pno}: общая ошибка анализа — {e}")
+                continue
+
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    with contextlib.suppress(Exception):
+                        os.remove(tmp_path)
+
+        # Останавливаем контейнер после обработки
+        if orchestrator:
+            with contextlib.suppress(Exception):
+                orchestrator.stop_huridocs(lambda m: None)
+
+        return out_batches
+
+    finally:
+        doc.close()
 
 
 def run_pipeline_transactional(
@@ -362,8 +377,8 @@ def run_pipeline_transactional(
     tgt_lang: str = "ru",
     huridocs_base: Optional[str] = None,
     huridocs_analyze_path: str = HURIDOCS_ANALYZE_PATH,
-    lms_base: str = DEFAULT_LMS_BASE,
-    lms_model: str = LMS_MODEL,
+    lms_base: str = DEFAULT_LMSTUDIO_BASE,
+    lms_model: str = LMSTUDIO_MODEL,
     batch_size: int = 15,
     force_split_spreads: bool = False,
     force_split_exceptions: str = "",
@@ -377,13 +392,13 @@ def run_pipeline_transactional(
 ) -> None:
     """
     Транзакционный постраничный конвейер с управлением контейнером.
-    
+
     Отличия от стандартного конвейера:
     - Каждая страница обрабатывается отдельно (analyze_pdf_transactional)
     - Автоматический перезапуск контейнера при сбоях
     - Периодический перезапуск каждые N страниц
     - Только мягкие правки сегментов (без переклассификации)
-    
+
     Args:
         input_pdf: Путь к входному PDF файлу
         out_pdf_annotated: Путь для сохранения аннотированного PDF
@@ -393,7 +408,7 @@ def run_pipeline_transactional(
         huridocs_base: URL HURIDOCS API
         huridocs_analyze_path: Путь endpoint анализа
         lms_base: URL LM Studio API
-        lms_model: Название модели
+        LMSTUDIO_MODEL: Название модели
         batch_size: Размер батча для обработки
         force_split_spreads: Принудительное деление разворотов
         force_split_exceptions: Страницы-исключения для split
@@ -406,7 +421,7 @@ def run_pipeline_transactional(
         split_spreads_enabled: Включить разделение разворотов
     """
     init_metrics(out_docx)
-    
+
     logging.info("Шаг 1/4: постраничный анализ через HURIDOCS...")
     pages = analyze_pdf_transactional(
         input_pdf=input_pdf,
@@ -418,11 +433,11 @@ def run_pipeline_transactional(
         end_page=end_page,
         per_page_timeout=600,
     )
-    
+
     # Мягкая волна до сплита
     pages = [refine_huridocs_segments(pb) for pb in pages]
-    pages = deglue_pages_pdf_aware(pages, pdf_path=input_pdf)
-    
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
     # Сплит разворотов
     if split_spreads_enabled:
         total_pages = max((pb.page_number for pb in pages), default=0)
@@ -437,33 +452,37 @@ def run_pipeline_transactional(
         else:
             pages = split_spreads(pages, pdf_path=input_pdf, debug=True)
             logging.info("После сплита (auto) логических страниц: %d.", len(pages))
-    
+
     # Мягкая волна после сплита
     pages = [refine_huridocs_segments(pb, x_tol=9.0, gap_tol=10.0) for pb in pages]
-    pages = deglue_pages_pdf_aware(pages, pdf_path=input_pdf)
-    
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
     # Перевод (фильтруем минимально значимые сегменты)
     logging.info("Шаг 3/4: перевод через LM Studio...")
     translations: Dict[Tuple[int, str, int], str] = {}
-    
+
     for page_batch in pages:
         if pause_hook:
             pause_hook()
-        
+
         def _for_translation(s: Segment) -> bool:
             t = (s.text or "").strip()
             if not t or len(t) < 5:
                 return False
-            if len(t.split()) == 1 and len(t) < 15 and s.type not in ("title", "section_header", "caption"):
+            if (
+                len(t.split()) == 1
+                and len(t) < 15
+                and s.type not in ("title", "section_header", "caption")
+            ):
                 return False
             if t.isdigit() and len(t) < 4:
                 return False
-            if all(c in ".,;:!?-–—()[]{}\" for c in t"):
+            if all(c in ".,;:!?-–—()[]{}\"'" for c in t):
                 return False
             return True
-        
+
         segs_for_translation = [s for s in page_batch.segments if _for_translation(s)]
-        
+
         page_map = lmstudio_translate_simple(
             model=lms_model,
             page_number=page_batch.page_number,
@@ -472,29 +491,38 @@ def run_pipeline_transactional(
             tgt_lang=tgt_lang,
             base_url=lms_base,
         )
-        
+
         side = getattr(page_batch, "logical_side", "")
         for s in segs_for_translation:
             translations[(page_batch.page_number, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
-        
+
         if pause_ms > 0:
             time.sleep(pause_ms / 1000.0)
-    
+
     # Вывод
     logging.info("Шаг 4/4: генерация аннотированного PDF и DOCX...")
     assert_layout_invariants(pages)
-    annotate_pdf_with_segments(input_pdf, out_pdf_annotated, pages)
+    annotate_pdf_with_segments(
+        input_pdf,
+        out_pdf_annotated,
+        pages,
+        use_comments=True,  # Использовать комментарии
+        annotation_type="none",  # С подсветкой
+        include_translation=True,  # Включить перевод
+    )
+
     export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
+
 
 def featurize_segments_for_llm(pb: PageBatch) -> Dict[str, Any]:
     """
     Готовит компактный JSON-пейлоад для возможной группировки LLM.
-    
+
     Args:
         pb: PageBatch для обработки
-        
+
     Returns:
         Словарь с данными сегментов для LLM
     """
@@ -516,15 +544,15 @@ def llm_group_segments(
 ) -> Dict[str, Any]:
     """
     Безопасная реализация: возвращает текущие типы без изменений.
-    
+
     Позже можно заменить на реальный запрос в LM Studio для
     переклассификации типов сегментов через LLM.
-    
+
     Args:
         model: Название модели LM Studio
         lms_base: Base URL LM Studio API
         page_payload: Данные страницы от featurize_segments_for_llm()
-        
+
     Returns:
         Словарь с группами сегментов
     """
@@ -539,27 +567,27 @@ def llm_group_segments(
 def apply_llm_groups(pb: PageBatch, grouping: Dict[str, Any]) -> PageBatch:
     """
     Применяет типы из группировки LLM к сегментам.
-    
+
     Args:
         pb: PageBatch для обновления
         grouping: Результат от llm_group_segments()
-        
+
     Returns:
         Обновлённый PageBatch
     """
     by_id = {s.block_id: s for s in pb.segments}
-    
+
     for g in grouping.get("groups", []):
         bid = int(g.get("block_id", 0))
         new_type = str(g.get("type", "")).strip()
         if bid in by_id and new_type:
             by_id[bid].type = new_type
-    
+
     # Возвращаем исходный порядок/нумерацию
     segs = sort_segments_reading_order(list(by_id.values()))
     for i, s in enumerate(segs, 1):
         s.block_id = i
-    
+
     return PageBatch(
         page_number=pb.page_number,
         segments=segs,
@@ -573,8 +601,8 @@ def run_pipeline_pymupdf(
     out_docx: str,
     src_lang: str = "en",
     tgt_lang: str = "ru",
-    lms_base: str = DEFAULT_LMS_BASE,
-    lms_model: str = LMS_MODEL,
+    lms_base: str = DEFAULT_LMSTUDIO_BASE,
+    lms_model: str = LMSTUDIO_MODEL,
     batch_size: int = 15,
     split_spreads_enabled: bool = True,
     force_split_spreads: bool = False,
@@ -584,17 +612,17 @@ def run_pipeline_pymupdf(
     use_llm_grouping: bool = False,
     pause_ms: int = 0,
     pause_hook: Optional[Callable[[], None]] = None,
-    ) -> None:
+) -> None:
     """
     Конвейер с PyMuPDF экстрактором (без HURIDOCS).
-    
+
     Этапы:
     1. Извлечение текста через PyMuPDF AdvancedTextProcessor
     2. Разделение разворотов (опционально)
     3. LLM-группировка типов (опционально)
     4. Перевод через LM Studio
     5. Экспорт в DOCX и аннотированный PDF
-    
+
     Args:
         input_pdf: Путь к входному PDF файлу
         out_pdf_annotated: Путь для сохранения аннотированного PDF
@@ -602,7 +630,7 @@ def run_pipeline_pymupdf(
         src_lang: Исходный язык
         tgt_lang: Целевой язык
         lms_base: URL LM Studio API
-        lms_model: Название модели
+        LMSTUDIO_MODEL: Название модели
         batch_size: Размер батча для обработки
         split_spreads_enabled: Включить разделение разворотов
         force_split_spreads: Принудительное деление разворотов
@@ -614,11 +642,11 @@ def run_pipeline_pymupdf(
         pause_hook: Callback для паузы
     """
     init_metrics(out_docx)
-    
+
     logging.info("PyMuPDF: шаг 1/4 — извлечение и сборка абзацев...")
     pages = extract_pages_pymupdf(input_pdf, start_page=start_page, end_page=end_page)
     logging.info("Извлечено %d страниц (до сплита).", len(pages))
-    
+
     # Разделение разворотов
     if split_spreads_enabled:
         if force_split_spreads:
@@ -633,7 +661,7 @@ def run_pipeline_pymupdf(
         else:
             pages = split_spreads(pages, pdf_path=input_pdf, debug=True)
             logging.info("После сплита (auto) логических страниц: %d.", len(pages))
-    
+
     # Дополнительная LLM-группировка ролей (опционально)
     if use_llm_grouping:
         logging.info("PyMuPDF: шаг 2/4 — LLM-группировка ролей и блоков...")
@@ -651,21 +679,21 @@ def run_pipeline_pymupdf(
                 )
                 grouped.append(pb)
         pages = grouped
-    
+
     # Перевод
     logging.info("PyMuPDF: шаг 3/4 — перевод через LM Studio...")
     translations: Dict[Tuple[int, str, int], str] = {}
-    
+
     for pb in pages:
         if pause_hook:
             pause_hook()
-        
+
         segs = [s for s in pb.segments if s.text.strip()]
         if not segs:
             if pause_ms > 0:
                 time.sleep(pause_ms / 1000.0)
             continue
-        
+
         page_map = lmstudio_translate_simple(
             model=lms_model,
             page_number=pb.page_number,
@@ -674,20 +702,27 @@ def run_pipeline_pymupdf(
             tgt_lang=tgt_lang,
             base_url=lms_base,
         )
-        
+
         side = getattr(pb, "logical_side", "")
         for s in segs:
             translations[(pb.page_number, side, s.block_id)] = page_map.get(
                 s.block_id, ""
             )
-        
+
         if pause_ms > 0:
             time.sleep(pause_ms / 1000.0)
-    
+
     # Вывод
     logging.info("PyMuPDF: шаг 4/4 — выпуск аннотированного PDF и DOCX...")
     assert_layout_invariants(pages)
-    annotate_pdf_with_segments(input_pdf, out_pdf_annotated, pages)
+    annotate_pdf_with_segments(
+        input_pdf,
+        out_pdf_annotated,
+        pages,
+        use_comments=True,  # Использовать комментарии
+        annotation_type="none",  # С подсветкой
+        include_translation=True,  # Включить перевод
+    )
     export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
-    
+
     logging.info("Готово: %s и %s", out_pdf_annotated, out_docx)
