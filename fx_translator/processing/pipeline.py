@@ -233,7 +233,7 @@ def analyze_pdf_transactional(
     restart_every: int = 0,
     start_page: Optional[int] = None,
     end_page: Optional[int] = None,
-    per_page_timeout: int = 600,
+    per_page_timeout: int = 1200,
     fast: bool = False,
 ) -> List[PageBatch]:
     """
@@ -438,7 +438,7 @@ def run_pipeline_transactional(
         restart_every=restart_every,
         start_page=start_page,
         end_page=end_page,
-        per_page_timeout=600,
+        per_page_timeout=1200,
         fast=fast,
     )
 
@@ -752,3 +752,162 @@ def run_pipeline_pymupdf(
     export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
 
     logging.info("Готово: %s и %s", out_pdf_annotated, out_docx)
+
+
+def run_pipeline_layoutlmv3(
+    input_pdf: str,
+    out_pdf_annotated: str,
+    out_docx: str,
+    src_lang: str = "it",
+    tgt_lang: str = "ru",
+    lms_base: str = DEFAULT_LMSTUDIO_BASE,
+    lms_model: str = LMSTUDIO_MODEL,
+    start_page: Optional[int] = None,
+    end_page: Optional[int] = None,
+    split_spreads_enabled: bool = True,
+    force_split_spreads: bool = False,
+    force_split_exceptions: str = "",
+    use_gpu: bool = True,
+    dpi: int = 200,
+    pause_ms: int = 0,
+    pause_hook: Optional[Callable[[], None]] = None,
+) -> None:
+    """
+    Конвейер обработки PDF через LayoutLMv3.
+
+    Этапы:
+    1. Анализ PDF через LayoutLMv3 (постраничный с GPU)
+    2. Постобработка сегментов (refine + deglue)
+    3. Разделение разворотов (опционально)
+    4. Перевод через LM Studio
+    5. Экспорт в DOCX и аннотированный PDF
+
+    Args:
+        input_pdf: Путь к входному PDF
+        out_pdf_annotated: Путь для аннотированного PDF
+        out_docx: Путь для DOCX
+        src_lang: Исходный язык (например, "it")
+        tgt_lang: Целевой язык (например, "ru")
+        lms_base: URL LM Studio API
+        lms_model: Название модели LM Studio
+        start_page: Начальная страница (1-based)
+        end_page: Конечная страница (1-based)
+        split_spreads_enabled: Разделение разворотов
+        force_split_spreads: Принудительное деление пополам
+        force_split_exceptions: Страницы-исключения для split
+        use_gpu: Использовать GPU для LayoutLMv3
+        dpi: DPI для конвертации PDF → изображение
+        pause_ms: Пауза между страницами (мс)
+        pause_hook: Callback функция для паузы
+    """
+    from fx_translator.api.layoutlmv3 import LayoutLMv3Analyzer
+
+    init_metrics(out_docx)
+
+    logging.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logging.info("🚀 LayoutLMv3 Pipeline")
+    logging.info(f"   PDF: {input_pdf}")
+    logging.info(f"   DPI: {dpi}")
+    logging.info(f"   GPU: {'Включено' if use_gpu else 'Отключено'}")
+    logging.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    # Шаг 1: Анализ через LayoutLMv3
+    logging.info("Шаг 1/4: Анализ макета через LayoutLMv3...")
+
+    analyzer = LayoutLMv3Analyzer(
+        model_name="microsoft/layoutlmv3-large", use_gpu=use_gpu
+    )
+
+    seg_json = analyzer.analyze_pdf(
+        pdf_path=input_pdf,
+        dpi=dpi,
+        start_page=start_page,
+        end_page=end_page,
+    )
+
+    logging.info(f"Получено {len(seg_json)} сегментов от LayoutLMv3")
+
+    # Преобразуем в PageBatch
+    pages = build_pages(seg_json)
+    logging.info(f"Создано {len(pages)} страниц")
+
+    # Шаг 2: Постобработка (мягкая волна)
+    logging.info("Шаг 2/4: Постобработка сегментов...")
+
+    # Первая волна - мягкое уточнение
+    pages = [refine_huridocs_segments(pb, xtol=3.0, gaptol=4.0) for pb in pages]
+
+    # Deglue для разделения слипшихся блоков
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
+    # Разделение разворотов
+    if split_spreads_enabled:
+        total_pages = max((pb.pagenumber for pb in pages), default=0)
+
+        if force_split_spreads:
+            ex = parse_page_set(force_split_exceptions, total_pages)
+            pages = split_spreads_force_half(pages, ex)
+            logging.info(
+                f"После сплита (force-half, исключения={sorted(list(ex)) if ex else '∅'}) "
+                f"логических страниц: {len(pages)}"
+            )
+        else:
+            pages = split_spreads(pages, pdf_path=input_pdf, debug=True)
+            logging.info(f"После сплита (auto) логических страниц: {len(pages)}")
+
+    # Вторая волна постобработки после сплита
+    pages = [refine_huridocs_segments(pb, xtol=3.0, gaptol=4.0) for pb in pages]
+    pages = deglue_pages_pdfaware(pages, pdf_path=input_pdf)
+
+    # Шаг 3: Перевод
+    logging.info("Шаг 3/4: Перевод через LM Studio...")
+    translations: Dict[Tuple[int, str, int], str] = {}
+
+    for page_batch in pages:
+        if pause_hook:
+            pause_hook()
+
+        segs_nonempty = [s for s in page_batch.segments if s.text.strip()]
+        if not segs_nonempty:
+            if pause_ms > 0:
+                time.sleep(pause_ms / 1000.0)
+            continue
+
+        page_map = lmstudio_translate_simple(
+            model=lms_model,
+            pagenumber=page_batch.pagenumber,
+            segments=segs_nonempty,
+            src_lang=src_lang,
+            tgt_lang=tgt_lang,
+            base_url=lms_base,
+        )
+
+        side = getattr(page_batch, "logical_side", "")
+        for s in segs_nonempty:
+            translations[(page_batch.pagenumber, side, s.blockid)] = page_map.get(
+                s.blockid, ""
+            )
+
+        if pause_ms > 0:
+            time.sleep(pause_ms / 1000.0)
+
+    # Шаг 4: Экспорт
+    logging.info("Шаг 4/4: Генерация вывода (PDF + DOCX)...")
+    assert_layout_invariants(pages)
+
+    annotate_pdf_with_segments(
+        input_pdf,
+        out_pdf_annotated,
+        pages,
+        use_comments=True,
+        annotation_type="none",
+        include_translation=True,
+    )
+
+    export_docx(pages, translations, out_docx, title=os.path.basename(input_pdf))
+
+    logging.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logging.info(f"✅ Готово!")
+    logging.info(f"   PDF: {out_pdf_annotated}")
+    logging.info(f"   DOCX: {out_docx}")
+    logging.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

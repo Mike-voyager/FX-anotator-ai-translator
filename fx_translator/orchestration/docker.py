@@ -118,10 +118,10 @@ class Orchestrator:
 
     def start_huridocs(self, log: Callable[[str], None]) -> bool:
         """
-        Запускает контейнер HURIDOCS.
+        Запускает контейнер HURIDOCS согласно официальной документации.
 
         Args:
-            log: Функция для логирования (например, print или gui_log)
+            log: Функция для логирования
 
         Returns:
             True если контейнер успешно запущен и готов
@@ -134,26 +134,33 @@ class Orchestrator:
 
         log("Запускаем контейнер HURIDOCS...")
 
-        # Удаляем старый контейнер если есть
+        # ✅ Удаляем старый контейнер если есть
         run_cmd(["docker", "rm", "-f", self.huridocs_container], timeout=60)
 
-        # Формируем команду запуска
+        # ✅ Формируем команду согласно документации
         base_cmd = [
             "docker",
             "run",
-            "-d",
+            "--rm",  # ✅ Автоудаление контейнера после остановки
+            "-d",  # Detached mode для фонового запуска
             "--name",
             self.huridocs_container,
             "-p",
             f"{self.huridocs_port}:{self.huridocs_internal_port}",
-            self.huridocs_image,
         ]
 
-        # Добавляем GPU если нужно
+        # ✅ Добавляем GPU согласно документации
         if self.use_gpu:
-            base_cmd.insert(2, "--gpus")
-            base_cmd.insert(3, "all")
+            # Важно: '"device=0"' должно быть одним аргументом
+            base_cmd.extend(["--gpus", '"device=0"'])
 
+        # ✅ Добавляем entrypoint
+        base_cmd.extend(["--entrypoint", "./start.sh"])
+
+        # ✅ Добавляем образ в конце
+        base_cmd.append(self.huridocs_image)
+
+        log(f"Команда запуска: {' '.join(base_cmd)}")
         code, out, err = run_cmd(base_cmd, timeout=180)
 
         if code != 0:
@@ -165,6 +172,12 @@ class Orchestrator:
         if wait_http_ready(base, timeout_sec=90):
             self.huridocs_base_url = base
             log(f"HURIDOCS готов на {base}")
+
+            # ✅ Добавляем паузу для прогрева модели VGT
+            log("Ждём прогрева ML модели...")
+            time.sleep(45)
+            log("✅ HURIDOCS полностью готов к работе")
+
             return True
 
         log("HURIDOCS не ответил за отведенное время.")

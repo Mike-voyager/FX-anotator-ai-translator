@@ -70,6 +70,8 @@ class AppGUI:
 
         # Источник блоков и LLM-группировка
         self.source_mode = tk.StringVar(value="huridocs")  # "pymupdf" | "huridocs"
+        self.layoutlmv3_use_gpu = tk.BooleanVar(value=True)
+        self.layoutlmv3_dpi = tk.IntVar(value=200)
         self.use_llm_grouping = tk.BooleanVar(value=False)
 
         # HURIDOCS параметры
@@ -168,15 +170,46 @@ class AppGUI:
         ttk.Label(frm, text="Источник блоков:").grid(row=row, column=0, sticky="w")
         self.src_combo = ttk.Combobox(
             frm,
-            values=["huridocs", "pymupdf"],
+            values=["huridocs", "layoutlmv3", "pymupdf"],  # ✅ Добавлен layoutlmv3
             textvariable=self.source_mode,
             width=12,
             state="readonly",
         )
         self.src_combo.grid(row=row, column=1, sticky="w")
+        self.src_combo.bind("<<ComboboxSelected>>", self._on_source_change)
         ttk.Checkbutton(
             frm, text="LLM-группировка (PyMuPDF)", variable=self.use_llm_grouping
         ).grid(row=row, column=2, columnspan=2, sticky="w")
+        row += 1
+
+        # === НАСТРОЙКИ LAYOUTLMV3 ===
+        self.layoutlmv3_frame = ttk.LabelFrame(
+            frm, text="LayoutLMv3 Settings", padding=5
+        )
+        self.layoutlmv3_frame.grid(row=row, column=0, columnspan=4, sticky="ew", pady=5)
+        self.layoutlmv3_frame.grid_remove()  # ✅ Скрыто по умолчанию
+
+        ttk.Checkbutton(
+            self.layoutlmv3_frame,
+            text="Use GPU (RTX 3050 Ti)",
+            variable=self.layoutlmv3_use_gpu,
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(self.layoutlmv3_frame, text="DPI:").pack(side=tk.LEFT, padx=5)
+        ttk.Combobox(
+            self.layoutlmv3_frame,
+            values=[150, 200, 300],
+            textvariable=self.layoutlmv3_dpi,
+            width=8,
+            state="readonly",
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(
+            self.layoutlmv3_frame,
+            text="Model: microsoft/layoutlmv3-large",
+            foreground="gray",
+        ).pack(side=tk.LEFT, padx=10)
+
         row += 1
 
         # === HURIDOCS ===
@@ -315,6 +348,15 @@ class AppGUI:
 
         # Запускаем обработку очереди логов
         self.master.after(100, self.flush_logs)
+
+    def _on_source_change(self, event=None):
+        """Показывает/скрывает настройки в зависимости от выбранного источника."""
+        mode = self.source_mode.get()
+
+        if mode == "layoutlmv3":
+            self.layoutlmv3_frame.grid()  # Показать настройки LayoutLMv3
+        else:
+            self.layoutlmv3_frame.grid_remove()  # Скрыть
 
     def _setup_logging(self):
         """Настраивает логирование в GUI."""
@@ -511,7 +553,7 @@ class AppGUI:
             mode = self.source_mode.get().strip().lower()
 
             # Проверяем сервисы
-            if mode != "pymupdf":
+            if mode not in ("pymupdf", "layoutlmv3"):
                 if not self._check_huridocs():
                     return
 
@@ -528,7 +570,32 @@ class AppGUI:
             batch_size = self.lms_batch_size.get()
 
             # Выбор конвейера
-            if mode == "pymupdf":
+            if mode == "layoutlmv3":
+                # ✅ LayoutLMv3 pipeline
+                from fx_translator.processing.pipeline import run_pipeline_layoutlmv3
+
+                self.gui_log("🔬 Запуск LayoutLMv3 конвейера (GPU)...")
+
+                run_pipeline_layoutlmv3(
+                    input_pdf=self.pdf_path.get(),
+                    out_pdf_annotated=self.out_pdf.get(),
+                    out_docx=self.out_docx.get(),
+                    src_lang=self.src_lang.get(),
+                    tgt_lang=self.tgt_lang.get(),
+                    lms_base=self.lms_base.get(),
+                    lms_model=self.lms_model.get(),
+                    start_page=start_page,
+                    end_page=end_page,
+                    split_spreads_enabled=split_spreads_enabled,
+                    force_split_spreads=bool(self.force_split.get()),
+                    force_split_exceptions=self.force_split_excl.get(),
+                    use_gpu=self.layoutlmv3_use_gpu.get(),
+                    dpi=self.layoutlmv3_dpi.get(),
+                    pause_ms=0,
+                    pause_hook=self.wait_if_paused,
+                )
+
+            elif mode == "pymupdf":
                 # PyMuPDF pipeline
                 run_pipeline_pymupdf(
                     input_pdf=self.pdf_path.get(),
@@ -547,6 +614,7 @@ class AppGUI:
                     pause_ms=0,
                     pause_hook=self.wait_if_paused,
                 )
+
             else:
                 # HURIDOCS pipeline
                 if transactional:
