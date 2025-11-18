@@ -196,3 +196,8 @@ MIT License
 ## 📮 Support
 
 For issues and questions, please use the [GitHub Issues](https://github.com/Mike-voyager/FX-anotator-ai-translator/issues) page.
+
+---
+
+## start huridocs/pdf-document-layout-analysis
+docker run --rm --name pdf-document-layout-analysis --gpus '"device=0"' -p 5060:5060 --entrypoint ./start.sh huridocs/pdf-document-layout-analysis:v0.0.31
